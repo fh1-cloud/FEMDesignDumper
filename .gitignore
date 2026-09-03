@@ -24,6 +24,10 @@ packages/
 # Dump output produced by the tool
 *_dump/
 
+# FEM-Design / FemDesign.Core scratch (generated scripts, logs, intermediate
+# result lists, re-serialized model copies) — may contain model data, never commit
+FEM-Design API/
+
 # OS
 Thumbs.db
 .DS_Store

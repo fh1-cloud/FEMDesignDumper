@@ -66,12 +66,19 @@ namespace FEMDesignDumper
             Log(opts, $"Opening model: {opts.ModelPath}");
             Log(opts, $"Mode: calc={opts.Calc.ToString().ToLowerInvariant()}, gui={(opts.Gui ? "on" : "off")}");
 
+            // Give FemDesign.Core its own temp scratch dir (generated scripts, logs,
+            // intermediate result lists, a re-serialized model copy). Otherwise it defaults
+            // to ".\FEM-Design API" under the current directory, dropping model data there.
+            // tempOutputDir: true removes it on Dispose.
+            string scratchDir = Path.Combine(Path.GetTempPath(), "FEMDesignDumper",
+                Guid.NewGuid().ToString("N"));
+
             using (var connection = new FemDesignConnection(
                 fdInstallationDir: opts.FdInstallDir,
                 minimized: !opts.Gui,
                 keepOpen: opts.KeepOpen,
-                outputDir: null,
-                tempOutputDir: false,
+                outputDir: scratchDir,
+                tempOutputDir: true,
                 verbosity: opts.Quiet ? Verbosity.None : Verbosity.Normal))
             {
                 if (!opts.Quiet)
@@ -264,6 +271,7 @@ namespace FEMDesignDumper
             ResultKind.Of<NodalDisplacement>("NodalDisplacement", true),
             ResultKind.Of<PointSupportReaction>("PointSupportReaction", true),
             ResultKind.Of<LineSupportReaction>("LineSupportReaction", true),
+            ResultKind.Of<LineSupportResultant>("LineSupportResultant", false),
             ResultKind.Of<SurfaceSupportReaction>("SurfaceSupportReaction", false),
             ResultKind.Of<BarInternalForce>("BarInternalForce", true),
             ResultKind.Of<BarEndForce>("BarEndForce", false),
@@ -273,9 +281,12 @@ namespace FEMDesignDumper
             ResultKind.Of<ShellDisplacement>("ShellDisplacement", true),
             ResultKind.Of<ShellStress>("ShellStress", false),
             ResultKind.Of<ShellDerivedForce>("ShellDerivedForce", false),
+            ResultKind.Of<RCShellReinforcementRequired>("RCShellReinforcementRequired", false),
             ResultKind.Of<BarSteelUtilization>("BarSteelUtilization", false),
             ResultKind.Of<BarTimberUtilization>("BarTimberUtilization", false),
             ResultKind.Of<EigenFrequencies>("EigenFrequencies", false),
+            ResultKind.Of<FemNode>("FemNode", false),
+            ResultKind.Of<FemShell>("FemShell", false),
         };
     }
 }

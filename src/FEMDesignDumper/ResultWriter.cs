@@ -18,6 +18,12 @@ namespace FEMDesignDumper
     {
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
+        // FEM-Design's list export prepends a UTF-8 BOM to the first token, so the
+        // first load-combination name comes back as "﻿ULSM1". These characters
+        // are stripped from string cells so values match cleanly when filtered by name.
+        private const char Bom = (char)0xFEFF;             // zero-width no-break space / BOM
+        private const char ZeroWidthSpace = (char)0x200B;
+
         public static void WriteJson(string path, object data)
         {
             string json = JsonConvert.SerializeObject(data, Formatting.Indented);
@@ -86,7 +92,7 @@ namespace FEMDesignDumper
 
             switch (v)
             {
-                case string s: return s;
+                case string s: return CleanString(s);
                 case bool b: return b ? "true" : "false";
                 case double d: return d.ToString("R", CultureInfo.InvariantCulture);
                 case float fl: return fl.ToString("R", CultureInfo.InvariantCulture);
@@ -107,6 +113,17 @@ namespace FEMDesignDumper
                 return JsonConvert.SerializeObject(v);
 
             return Convert.ToString(v, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Strips a leading UTF-8 BOM / zero-width space that FEM-Design's list export
+        /// prepends to the first token (e.g. the first load combination name), so values
+        /// match cleanly when filtered by name.
+        /// </summary>
+        public static string CleanString(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.TrimStart(Bom, ZeroWidthSpace);
         }
 
         private static string Escape(string s)

@@ -150,7 +150,7 @@ namespace FEMDesignDumper
                     try
                     {
                         plotFiles.AddRange(Plotter.Generate(connection, units, opts.OutputDir,
-                            opts.Plots, uls, sls, opts.PlotCap, m => Log(opts, m)));
+                            opts.Plots, uls, sls, opts.PlotCap, opts.PlotView, m => Log(opts, m)));
                     }
                     catch (Exception ex)
                     {

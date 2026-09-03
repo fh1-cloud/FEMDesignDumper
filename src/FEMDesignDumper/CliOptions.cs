@@ -30,6 +30,7 @@ namespace FEMDesignDumper
         public int FreqShapes = 5;
         public List<string> Plots = new List<string>();   // empty => no plots
         public string PlotCap = "max";                     // colour-scale cap: max | p95 | p99
+        public string PlotView = "iso";                    // iso | plate | both
 
         // Control-flow flags: when set, the program prints something and exits 0.
         public bool ShowHelp;
@@ -160,6 +161,15 @@ namespace FEMDesignDumper
                             }
                             break;
 
+                        case "--plot-view":
+                            {
+                                string v = TakeValue().ToLowerInvariant();
+                                if (v != "iso" && v != "plate" && v != "both")
+                                    throw new ArgumentException("--plot-view must be iso | plate | both.");
+                                o.PlotView = v;
+                            }
+                            break;
+
                         case "--gui":
                             o.Gui = true;
                             break;
@@ -261,6 +271,8 @@ OPTIONS:
                          Written to <out>/plots/<surface>_<field>.svg. Needs shell results.
       --plot-cap <mode>  Colour-scale cap: max | p95 | p99. Default: max. (p95/p99 tame
                          support singularities; the annotated peak is always the true value.)
+      --plot-view <mode> iso | plate | both. Default: iso. iso = whole structure in one 3D
+                         view (iso_<field>.svg); plate = one flat map per plate.
       --fd-dir <path>    FEM-Design install dir. Default: auto-detect FEM-Design 25.
       --gui              Show the FEM-Design window. Default: headless.
       --keep-open        Leave FEM-Design running after the dump.

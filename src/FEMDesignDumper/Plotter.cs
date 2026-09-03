@@ -29,7 +29,8 @@ namespace FEMDesignDumper
         private static readonly string[] AxisName = { "x", "y", "z" };
 
         public static List<string> Generate(FemDesignConnection conn, UnitResults units, string outDir,
-            List<string> groups, HashSet<string> uls, HashSet<string> sls, string capMode, Action<string> log)
+            List<string> groups, HashSet<string> uls, HashSet<string> sls, string capMode, string viewMode,
+            Action<string> log)
         {
             var written = new List<string>();
             string plotsDir = Path.Combine(outDir, "plots");
@@ -61,6 +62,9 @@ namespace FEMDesignDumper
             var bySurface = shells.GroupBy(e => SurfaceOf(e.Plate))
                                   .ToDictionary(g => g.Key, g => g.ToList());
             var axes = bySurface.ToDictionary(kv => kv.Key, kv => ProjectAxes(kv.Value, coord));
+            var allElems = bySurface.Values.SelectMany(x => x).ToList();
+            bool doPlate = viewMode == "plate" || viewMode == "both";
+            bool doIso = viewMode == "iso" || viewMode == "both";
 
             // cache source result lists (fetched at most once)
             List<RCShellReinforcementRequired> reinf = null;
@@ -82,8 +86,8 @@ namespace FEMDesignDumper
                     foreach (var f in fields)
                     {
                         var vals = ReduceMaxElement(reinf.Select(x => (x.Id, x.ElementId, x.CaseIdentifier, f.sel(x))), uls);
-                        written.AddRange(RenderSurfaces(plotsDir, bySurface, axes, coord, support, vals,
-                            f.name, f.title, f.unit, EnvNote("maks", uls.Count, "ULS"), capMode, log));
+                        written.AddRange(Emit(plotsDir, bySurface, allElems, axes, coord, support, vals,
+                            f.name, f.title, f.unit, EnvNote("maks", uls.Count, "ULS"), capMode, doPlate, doIso, log));
                     }
                 }
                 else if (group == "moment" || group == "shear")
@@ -106,8 +110,8 @@ namespace FEMDesignDumper
                     {
                         var vals = ReduceMaxElement(
                             shellForce.Select(x => (x.Id, x.ElementId, x.CaseIdentifier, Math.Abs(f.sel(x)))), uls);
-                        written.AddRange(RenderSurfaces(plotsDir, bySurface, axes, coord, support, vals,
-                            f.name, f.title, f.unit, EnvNote("|maks|", uls.Count, "ULS"), capMode, log));
+                        written.AddRange(Emit(plotsDir, bySurface, allElems, axes, coord, support, vals,
+                            f.name, f.title, f.unit, EnvNote("|maks|", uls.Count, "ULS"), capMode, doPlate, doIso, log));
                     }
                 }
                 else if (group == "deflection")
@@ -132,8 +136,8 @@ namespace FEMDesignDumper
                         string comb = nodeVal[ns.OrderByDescending(nd => nodeVal[nd].v).First()].c;
                         vals[(e.Plate, e.Id)] = (mean, comb);
                     }
-                    written.AddRange(RenderSurfaces(plotsDir, bySurface, axes, coord, support, vals,
-                        "Ez", "nedbøyning nedover, SLS", "mm", EnvNote("maks", sls.Count, "SLS"), capMode, log));
+                    written.AddRange(Emit(plotsDir, bySurface, allElems, axes, coord, support, vals,
+                        "Ez", "nedbøyning nedover, SLS", "mm", EnvNote("maks", sls.Count, "SLS"), capMode, doPlate, doIso, log));
                 }
                 else
                 {
@@ -145,6 +149,95 @@ namespace FEMDesignDumper
 
         private static string EnvNote(string kind, int n, string kindName)
             => $"Enveloppe {kind} over {n} {kindName}-kombinasjoner";
+
+        private static List<string> Emit(
+            string plotsDir,
+            Dictionary<string, List<Elem>> bySurface,
+            List<Elem> allElems,
+            Dictionary<string, (int u, int v)> axes,
+            Dictionary<int, double[]> coord,
+            HashSet<int> support,
+            Dictionary<(string, int), (double val, string comb)> vals,
+            string field, string title, string unit, string envNote, string capMode,
+            bool doPlate, bool doIso, Action<string> log)
+        {
+            var written = new List<string>();
+            if (doPlate)
+                written.AddRange(RenderSurfaces(plotsDir, bySurface, axes, coord, support, vals,
+                    field, title, unit, envNote, capMode, log));
+            if (doIso)
+            {
+                string p = RenderIso(plotsDir, bySurface, allElems, coord, support, vals,
+                    field, title, unit, envNote, capMode, log);
+                if (p != null) written.Add(p);
+            }
+            return written;
+        }
+
+        private static string RenderIso(
+            string plotsDir,
+            Dictionary<string, List<Elem>> bySurface,
+            List<Elem> allElems,
+            Dictionary<int, double[]> coord,
+            HashSet<int> support,
+            Dictionary<(string, int), (double val, string comb)> vals,
+            string field, string title, string unit, string envNote, string capMode, Action<string> log)
+        {
+            var fig = new IsoFigure
+            {
+                Title = "Hele konstruksjonen — " + title,
+                Subtitle = envNote + " · enhet " + unit,
+                Unit = unit,
+            };
+            var allVals = new List<double>();
+            Elem peakElem = null; double peakVal = double.NegativeInfinity; string peakComb = "";
+
+            foreach (var surface in bySurface.Keys.OrderBy(k => k))
+            {
+                var elems = bySurface[surface];
+                var pnodes = elems.SelectMany(e => e.Nodes).Distinct().Where(coord.ContainsKey).ToList();
+                if (pnodes.Count > 0)
+                {
+                    var c = new double[3];
+                    foreach (var nd in pnodes) { var xyz = coord[nd]; c[0] += xyz[0]; c[1] += xyz[1]; c[2] += xyz[2]; }
+                    c[0] /= pnodes.Count; c[1] /= pnodes.Count; c[2] /= pnodes.Count;
+                    fig.PlateLabels.Add(new KeyValuePair<string, double[]>(surface, c));
+                }
+                foreach (var e in elems)
+                {
+                    if (!vals.TryGetValue((e.Plate, e.Id), out var vc)) continue;
+                    fig.Elements.Add(new Element3D { Xyz = e.Nodes.Select(nd => coord[nd]).ToArray(), Value = vc.val });
+                    allVals.Add(vc.val);
+                    if (vc.val > peakVal) { peakVal = vc.val; peakElem = e; peakComb = vc.comb; }
+                }
+            }
+
+            if (fig.Elements.Count == 0 || peakElem == null)
+            {
+                log($"  plots: iso {field}: no data, skipped.");
+                return null;
+            }
+
+            double eps = Math.Max(1e-6, Math.Abs(peakVal) * 1e-9);
+            var atMax = allElems.Where(e => vals.TryGetValue((e.Plate, e.Id), out var v) && v.val >= peakVal - eps).ToList();
+            var borderEl = atMax.FirstOrDefault(e => e.Nodes.Any(support.Contains));
+            if (borderEl != null) { peakElem = borderEl; peakComb = vals[(borderEl.Plate, borderEl.Id)].comb; }
+
+            var pc = new double[3];
+            foreach (var nd in peakElem.Nodes) { var xyz = coord[nd]; pc[0] += xyz[0]; pc[1] += xyz[1]; pc[2] += xyz[2]; }
+            pc[0] /= peakElem.Nodes.Length; pc[1] /= peakElem.Nodes.Length; pc[2] /= peakElem.Nodes.Length;
+
+            fig.PeakXyz = pc;
+            fig.PeakValue = peakVal;
+            fig.PeakLabel = $"{peakElem.Plate}#{peakElem.Id} ({peakComb})";
+            fig.PeakBordersSupport = borderEl != null;
+            fig.ColorMax = capMode == "max" ? allVals.Max() : Percentile(allVals, capMode == "p99" ? 99 : 95);
+
+            string path = Path.Combine(plotsDir, $"iso_{field}.svg");
+            IsoWriter.Render(path, fig);
+            log($"  plot: iso {field}  peak={peakVal:0.#} {unit}{(fig.PeakBordersSupport ? " (ved opplegg)" : "")}");
+            return path;
+        }
 
         private static List<string> RenderSurfaces(
             string plotsDir,

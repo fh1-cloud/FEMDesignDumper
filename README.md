@@ -22,7 +22,7 @@ the GUI.
 2. Opens a `.str` or `.struxml` model.
 3. Optionally runs static or eigenfrequency analysis.
 4. Extracts a model summary and a selectable set of result tables.
-5. Optionally renders per-plate SVG plots (reinforcement, moments, shear, deflection) with the peak annotated.
+5. Optionally renders SVG result plots (reinforcement, moments, shear, deflection) with the peak annotated — a whole-structure isometric view by default, or flat per-plate maps.
 6. Writes everything to an output folder and exits.
 
 It **reads** results (including saved design results); it does **not** run RC/steel/timber
@@ -68,6 +68,7 @@ FEMDesignDumper --model <path> [options]
 | `-f, --format <list>` | `csv`, `json`, or both. Default: both. |
 | `--plots <list>` | Per-plate SVG colour maps with annotated peak: `reinf`, `moment`, `shear`, `deflection`, or `all`. Default: none. |
 | `--plot-cap <mode>` | Colour-scale cap: `max` (default), `p95`, `p99`. Tames support singularities; the peak label always shows the true value. |
+| `--plot-view <mode>` | `iso` (default — whole structure in one 3D view), `plate` (one flat map per plate), or `both`. |
 | `--fd-dir <path>` | FEM-Design install directory. Default: auto-detect. |
 | `--gui` | Show the FEM-Design window instead of running headless. |
 | `--keep-open` | Leave FEM-Design running after the dump. |
@@ -155,19 +156,24 @@ forces; `Txz,Tyz` the transverse shear *v′xz, v′yz*.
 (`ok`/`empty`/`error`), a row count, and the files written (plus a `plots` list). Program logs
 go to **stderr**; the short final summary goes to **stdout**.
 
-## Per-plate plots
+## Result plots
 
 `--plots` renders self-contained SVG colour maps — no FEM-Design figure/documentation needed.
-For every plate (grouped by shell `Id` surface, e.g. `P.2`) and every selected quantity it
-writes one element-filled map with the **true peak annotated** (value, location, governing
-combination, and whether the peak element borders a support) to
-`<out>/plots/<surface>_<field>.svg`.
+Values are enveloped over the model's real ULS (`Ultimate*`) or SLS (`Serviceability*`)
+combination **types** and reduced to one value per element (the extreme over the element's
+nodes and the combinations), and the **true peak is annotated** (value, location, governing
+combination, and whether the peak element borders a support).
 
-Each plate is projected to its own 2D plane (the near-constant global axis is dropped; the two
-remaining global axes label the plot — so it assumes plates roughly parallel to a global
-coordinate plane). Values are enveloped over the model's real ULS (`Ultimate*`) or SLS
-(`Serviceability*`) combination **types**, and reduced to one value per element (the extreme
-over the element's nodes and the combinations).
+`--plot-view` selects the projection:
+
+- **`iso`** (default) — the **whole structure in one axonometric 3D view**
+  (`<out>/plots/iso_<field>.svg`), with each plate labelled (`P.1`…), an x/y/z orientation
+  triad, and painter-sorted, depth-correct shading. This is the easiest to read; you don't have
+  to relate to abstract plate names.
+- **`plate`** — one flat map per plate (`<out>/plots/<surface>_<field>.svg`); each plate is
+  projected to its own 2D plane (the near-constant global axis is dropped, the two remaining
+  global axes label the plot, so it assumes plates roughly parallel to a global coordinate plane).
+- **`both`** — writes both.
 
 | Group | Quantity (field) | Envelope | Unit |
 | --- | --- | --- | --- |
@@ -185,8 +191,13 @@ model; reinforcement needs RC design to have been run). The plots fetch what the
 themselves, so a minimal dump is fine:
 
 ```bash
+# isometric (default): one whole-structure view per field
 FEMDesignDumper -m model.str --calc none -r FemNode --plots reinf,shear --plot-cap p95 -o C:\out
-# -> C:\out\plots\P.1_XBottom.svg ... P.4_Tyz.svg  (4 plates x fields)
+# -> C:\out\plots\iso_XBottom.svg ... iso_Tyz.svg
+
+# per-plate flat maps instead (or --plot-view both)
+FEMDesignDumper -m model.str --calc none -r FemNode --plots reinf --plot-view plate -o C:\out
+# -> C:\out\plots\P.1_XBottom.svg ... P.4_YTop.svg
 ```
 
 ## Data-model reference

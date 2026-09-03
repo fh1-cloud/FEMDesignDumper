@@ -28,6 +28,8 @@ namespace FEMDesignDumper
         public bool KeepOpen;
         public bool Quiet;
         public int FreqShapes = 5;
+        public List<string> Plots = new List<string>();   // empty => no plots
+        public string PlotCap = "max";                     // colour-scale cap: max | p95 | p99
 
         // Control-flow flags: when set, the program prints something and exits 0.
         public bool ShowHelp;
@@ -134,6 +136,30 @@ namespace FEMDesignDumper
                             }
                             break;
 
+                        case "--plots":
+                            {
+                                string v = TakeValue();
+                                if (string.Equals(v, "all", StringComparison.OrdinalIgnoreCase))
+                                    o.Plots = Plotter.Groups.ToList();
+                                else if (string.Equals(v, "none", StringComparison.OrdinalIgnoreCase))
+                                    o.Plots = new List<string>();
+                                else
+                                    o.Plots = v.Split(',')
+                                        .Select(s => s.Trim().ToLowerInvariant())
+                                        .Where(s => s.Length > 0)
+                                        .ToList();
+                            }
+                            break;
+
+                        case "--plot-cap":
+                            {
+                                string v = TakeValue().ToLowerInvariant();
+                                if (v != "max" && v != "p95" && v != "p99")
+                                    throw new ArgumentException("--plot-cap must be max | p95 | p99.");
+                                o.PlotCap = v;
+                            }
+                            break;
+
                         case "--gui":
                             o.Gui = true;
                             break;
@@ -183,6 +209,14 @@ namespace FEMDesignDumper
             }
             o.OutputDir = Path.GetFullPath(o.OutputDir);
 
+            var badPlots = o.Plots.Where(g => !Plotter.Groups.Contains(g)).ToList();
+            if (badPlots.Count > 0)
+            {
+                error = "Unknown --plots group(s): " + string.Join(", ", badPlots) +
+                        ". Valid: " + string.Join(", ", Plotter.Groups) + ", all, none.";
+                return null;
+            }
+
             return o;
         }
 
@@ -222,6 +256,11 @@ OPTIONS:
                          Default: a curated set of common results.
                          Example: --results BarInternalForce,NodalDisplacement
   -f, --format <list>    csv,json (either or both). Default: csv,json.
+      --plots <list>     Per-plate SVG colour maps with the peak annotated, or 'all'/'none'.
+                         Groups: reinf, moment, shear, deflection. Default: none.
+                         Written to <out>/plots/<surface>_<field>.svg. Needs shell results.
+      --plot-cap <mode>  Colour-scale cap: max | p95 | p99. Default: max. (p95/p99 tame
+                         support singularities; the annotated peak is always the true value.)
       --fd-dir <path>    FEM-Design install dir. Default: auto-detect FEM-Design 25.
       --gui              Show the FEM-Design window. Default: headless.
       --keep-open        Leave FEM-Design running after the dump.

@@ -22,7 +22,8 @@ the GUI.
 2. Opens a `.str` or `.struxml` model.
 3. Optionally runs static or eigenfrequency analysis.
 4. Extracts a model summary and a selectable set of result tables.
-5. Writes everything to an output folder and exits.
+5. Optionally renders per-plate SVG plots (reinforcement, moments, shear, deflection) with the peak annotated.
+6. Writes everything to an output folder and exits.
 
 It **reads** results (including saved design results); it does **not** run RC/steel/timber
 design itself.
@@ -65,6 +66,8 @@ FEMDesignDumper --model <path> [options]
 | `--freq-shapes <n>` | Number of eigenshapes for `--calc freq`. Default: 5. |
 | `-r, --results <list>` | Comma-separated result types, or `all`, or `list`. Default: curated set. |
 | `-f, --format <list>` | `csv`, `json`, or both. Default: both. |
+| `--plots <list>` | Per-plate SVG colour maps with annotated peak: `reinf`, `moment`, `shear`, `deflection`, or `all`. Default: none. |
+| `--plot-cap <mode>` | Colour-scale cap: `max` (default), `p95`, `p99`. Tames support singularities; the peak label always shows the true value. |
 | `--fd-dir <path>` | FEM-Design install directory. Default: auto-detect. |
 | `--gui` | Show the FEM-Design window instead of running headless. |
 | `--keep-open` | Leave FEM-Design running after the dump. |
@@ -149,8 +152,42 @@ forces; `Txz,Tyz` the transverse shear *v′xz, v′yz*.
 ```
 
 `manifest.json` is the entry point for automation: each result type carries a `status`
-(`ok`/`empty`/`error`), a row count, and the files written. Program logs go to **stderr**;
-the short final summary goes to **stdout**.
+(`ok`/`empty`/`error`), a row count, and the files written (plus a `plots` list). Program logs
+go to **stderr**; the short final summary goes to **stdout**.
+
+## Per-plate plots
+
+`--plots` renders self-contained SVG colour maps — no FEM-Design figure/documentation needed.
+For every plate (grouped by shell `Id` surface, e.g. `P.2`) and every selected quantity it
+writes one element-filled map with the **true peak annotated** (value, location, governing
+combination, and whether the peak element borders a support) to
+`<out>/plots/<surface>_<field>.svg`.
+
+Each plate is projected to its own 2D plane (the near-constant global axis is dropped; the two
+remaining global axes label the plot — so it assumes plates roughly parallel to a global
+coordinate plane). Values are enveloped over the model's real ULS (`Ultimate*`) or SLS
+(`Serviceability*`) combination **types**, and reduced to one value per element (the extreme
+over the element's nodes and the combinations).
+
+| Group | Quantity (field) | Envelope | Unit |
+| --- | --- | --- | --- |
+| `reinf` | required reinforcement `XBottom, YBottom, XTop, YTop` | max over ULS | mm²/m |
+| `moment` | shell moments `Mx, My, Mxy` (\|value\|) | max over ULS | kNm/m |
+| `shear` | shell shear `Txz, Tyz` (\|value\|) | max over ULS | kN/m |
+| `deflection` | vertical deflection `Ez` (downward) | max over SLS | mm |
+
+**Support singularities**: peak shear/reinforcement often sits on a support-bordering element.
+The annotation flags this (`ved opplegg`), and `--plot-cap p95`/`p99` caps the colour scale at
+that percentile so one spike doesn't wash out the map — the label still reports the true peak.
+
+Needs `FemNode`, `FemShell` and the quantity's result type present in the model (a calculated
+model; reinforcement needs RC design to have been run). The plots fetch what they need
+themselves, so a minimal dump is fine:
+
+```bash
+FEMDesignDumper -m model.str --calc none -r FemNode --plots reinf,shear --plot-cap p95 -o C:\out
+# -> C:\out\plots\P.1_XBottom.svg ... P.4_Tyz.svg  (4 plates x fields)
+```
 
 ## Data-model reference
 

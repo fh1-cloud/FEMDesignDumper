@@ -61,6 +61,7 @@ namespace FEMDesignDumper
 
             var units = new UnitResults(); // kN, m, mm displacement, MPa, deg, mm sections
             var resultReports = new List<Dictionary<string, object>>();
+            var plotFiles = new List<string>();
             Dictionary<string, object> modelSummary = null;
 
             Log(opts, $"Opening model: {opts.ModelPath}");
@@ -99,7 +100,8 @@ namespace FEMDesignDumper
                     connection.RunAnalysis(Analysis.Eigenfrequencies(opts.FreqShapes, 0, true, true, true, -0.01));
                 }
 
-                modelSummary = BuildModelSummary(connection);
+                Model model = connection.GetModel();
+                modelSummary = BuildModelSummary(model);
                 if (opts.WriteJson || opts.WriteCsv)
                     ResultWriter.WriteJson(Path.Combine(opts.OutputDir, "model_summary.json"), modelSummary);
 
@@ -140,6 +142,21 @@ namespace FEMDesignDumper
                     report["files"] = files;
                     resultReports.Add(report);
                 }
+
+                if (opts.Plots.Count > 0)
+                {
+                    var (uls, sls) = ClassifyCombos(model);
+                    Log(opts, $"Generating plots [{string.Join(",", opts.Plots)}] cap={opts.PlotCap} (ULS={uls.Count}, SLS={sls.Count})...");
+                    try
+                    {
+                        plotFiles.AddRange(Plotter.Generate(connection, units, opts.OutputDir,
+                            opts.Plots, uls, sls, opts.PlotCap, m => Log(opts, m)));
+                    }
+                    catch (Exception ex)
+                    {
+                        Log(opts, "  plots: error - " + ex.Message);
+                    }
+                }
             }
 
             var manifest = new Dictionary<string, object>
@@ -162,6 +179,7 @@ namespace FEMDesignDumper
                 },
                 ["modelSummary"] = modelSummary,
                 ["results"] = resultReports,
+                ["plots"] = plotFiles.Select(p => Path.Combine("plots", Path.GetFileName(p))).ToList(),
             };
             string manifestPath = Path.Combine(opts.OutputDir, "manifest.json");
             ResultWriter.WriteJson(manifestPath, manifest);
@@ -171,6 +189,8 @@ namespace FEMDesignDumper
             Console.WriteLine();
             Console.WriteLine($"Done. {okCount}/{resultReports.Count} result types with data, {totalRows} rows total.");
             Console.WriteLine($"Output: {opts.OutputDir}");
+            if (plotFiles.Count > 0)
+                Console.WriteLine($"Plots: {plotFiles.Count} SVG(s) in {Path.Combine(opts.OutputDir, "plots")}");
             Console.WriteLine($"Manifest: {manifestPath}");
 
             if (okCount == 0 && opts.Calc == CalcMode.None)
@@ -179,12 +199,11 @@ namespace FEMDesignDumper
             return 0;
         }
 
-        private static Dictionary<string, object> BuildModelSummary(FemDesignConnection connection)
+        private static Dictionary<string, object> BuildModelSummary(Model model)
         {
             var summary = new Dictionary<string, object>();
             try
             {
-                Model model = connection.GetModel();
                 var ents = model?.Entities;
 
                 summary["bars"] = ents?.Bars?.Count ?? 0;
@@ -206,6 +225,32 @@ namespace FEMDesignDumper
                 summary["error"] = ex.Message;
             }
             return summary;
+        }
+
+        /// <summary>
+        /// Splits the model's load combinations into ULS (Ultimate*) and SLS (Serviceability*)
+        /// name sets. Names are BOM-cleaned so they match the result CaseIdentifier strings.
+        /// </summary>
+        private static (HashSet<string> uls, HashSet<string> sls) ClassifyCombos(Model model)
+        {
+            var uls = new HashSet<string>();
+            var sls = new HashSet<string>();
+            try
+            {
+                var combos = model?.Entities?.Loads?.LoadCombinations;
+                if (combos != null)
+                {
+                    foreach (var c in combos)
+                    {
+                        string name = ResultWriter.CleanString(c.Name);
+                        string t = c.Type.ToString();
+                        if (t.StartsWith("Ultimate", StringComparison.Ordinal)) uls.Add(name);
+                        else if (t.StartsWith("Serviceability", StringComparison.Ordinal)) sls.Add(name);
+                    }
+                }
+            }
+            catch { }
+            return (uls, sls);
         }
 
         private static List<ResultKind> SelectResultKinds(CliOptions opts, out string error)

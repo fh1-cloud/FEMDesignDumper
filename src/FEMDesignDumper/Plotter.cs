@@ -30,7 +30,7 @@ namespace FEMDesignDumper
 
         public static List<string> Generate(FemDesignConnection conn, UnitResults units, string outDir,
             List<string> groups, HashSet<string> uls, HashSet<string> sls, string capMode, string viewMode,
-            Action<string> log)
+            double[] isoView, Action<string> log)
         {
             var written = new List<string>();
             string plotsDir = Path.Combine(outDir, "plots");
@@ -87,7 +87,7 @@ namespace FEMDesignDumper
                     {
                         var vals = ReduceMaxElement(reinf.Select(x => (x.Id, x.ElementId, x.CaseIdentifier, f.sel(x))), uls);
                         written.AddRange(Emit(plotsDir, bySurface, allElems, axes, coord, support, vals,
-                            f.name, f.title, f.unit, EnvNote("maks", uls.Count, "ULS"), capMode, doPlate, doIso, log));
+                            f.name, f.title, f.unit, EnvNote("maks", uls.Count, "ULS"), capMode, doPlate, doIso, isoView, log));
                     }
                 }
                 else if (group == "moment" || group == "shear")
@@ -111,7 +111,7 @@ namespace FEMDesignDumper
                         var vals = ReduceMaxElement(
                             shellForce.Select(x => (x.Id, x.ElementId, x.CaseIdentifier, Math.Abs(f.sel(x)))), uls);
                         written.AddRange(Emit(plotsDir, bySurface, allElems, axes, coord, support, vals,
-                            f.name, f.title, f.unit, EnvNote("|maks|", uls.Count, "ULS"), capMode, doPlate, doIso, log));
+                            f.name, f.title, f.unit, EnvNote("|maks|", uls.Count, "ULS"), capMode, doPlate, doIso, isoView, log));
                     }
                 }
                 else if (group == "deflection")
@@ -137,7 +137,7 @@ namespace FEMDesignDumper
                         vals[(e.Plate, e.Id)] = (mean, comb);
                     }
                     written.AddRange(Emit(plotsDir, bySurface, allElems, axes, coord, support, vals,
-                        "Ez", "nedbøyning nedover, SLS", "mm", EnvNote("maks", sls.Count, "SLS"), capMode, doPlate, doIso, log));
+                        "Ez", "nedbøyning nedover, SLS", "mm", EnvNote("maks", sls.Count, "SLS"), capMode, doPlate, doIso, isoView, log));
                 }
                 else
                 {
@@ -159,7 +159,7 @@ namespace FEMDesignDumper
             HashSet<int> support,
             Dictionary<(string, int), (double val, string comb)> vals,
             string field, string title, string unit, string envNote, string capMode,
-            bool doPlate, bool doIso, Action<string> log)
+            bool doPlate, bool doIso, double[] isoView, Action<string> log)
         {
             var written = new List<string>();
             if (doPlate)
@@ -168,7 +168,7 @@ namespace FEMDesignDumper
             if (doIso)
             {
                 string p = RenderIso(plotsDir, bySurface, allElems, coord, support, vals,
-                    field, title, unit, envNote, capMode, log);
+                    field, title, unit, envNote, capMode, isoView, log);
                 if (p != null) written.Add(p);
             }
             return written;
@@ -181,7 +181,7 @@ namespace FEMDesignDumper
             Dictionary<int, double[]> coord,
             HashSet<int> support,
             Dictionary<(string, int), (double val, string comb)> vals,
-            string field, string title, string unit, string envNote, string capMode, Action<string> log)
+            string field, string title, string unit, string envNote, string capMode, double[] isoView, Action<string> log)
         {
             var fig = new IsoFigure
             {
@@ -189,6 +189,7 @@ namespace FEMDesignDumper
                 Subtitle = envNote + " · enhet " + unit,
                 Unit = unit,
             };
+            if (isoView != null && isoView.Length == 3) fig.ViewDir = isoView;
             var allVals = new List<double>();
             Elem peakElem = null; double peakVal = double.NegativeInfinity; string peakComb = "";
 

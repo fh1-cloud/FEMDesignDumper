@@ -21,8 +21,7 @@ namespace FEMDesignDumper
         public string Subtitle;
         public string Unit;
         public List<Element3D> Elements = new List<Element3D>();
-        public double AzDeg = 45;   // rotation about the vertical (Z) axis
-        public double ElDeg = 30;   // tilt down
+        public double[] ViewDir = { -1, -1, 1 };   // eye/viewpoint direction; world up = +Z
         public double ColorMax;
         public double[] PeakXyz;
         public double PeakValue;
@@ -68,25 +67,43 @@ namespace FEMDesignDumper
         private static string F(double n) => n.ToString("0.##", CultureInfo.InvariantCulture);
         private static string N0(double n) => n.ToString("#,0", CultureInfo.InvariantCulture);
 
-        /// <summary>Axonometric projection: 3D world (x span, y transverse, z up) -> (sx, sy up, depth).</summary>
-        private static (double sx, double sy, double depth) Project(double x, double y, double z, double az, double el)
+        /// <summary>Orthographic look-at projection onto the screen basis: world -> (sx, sy up, depth).</summary>
+        private static (double sx, double sy, double depth) Project(double x, double y, double z, double[] r, double[] u, double[] f)
         {
-            double ca = Math.Cos(az), sa = Math.Sin(az), ce = Math.Cos(el), se = Math.Sin(el);
-            double x1 = x * ca - y * sa;
-            double y1 = x * sa + y * ca;
-            double z1 = z;
-            double sx = x1;
-            double sy = y1 * se + z1 * ce;         // screen up (+)
-            double depth = y1 * ce - z1 * se;      // into the screen; larger = nearer camera
-            return (sx, sy, depth);
+            return (x * r[0] + y * r[1] + z * r[2],
+                    x * u[0] + y * u[1] + z * u[2],
+                    x * f[0] + y * f[1] + z * f[2]);   // depth along view; larger = farther
         }
+
+        /// <summary>Screen basis (right, up, forward-into-scene) for an eye/viewpoint direction, world up +Z.</summary>
+        private static (double[] r, double[] u, double[] f) Basis(double[] view)
+        {
+            double[] f = Norm(new[] { -view[0], -view[1], -view[2] });   // forward = into the scene
+            double[] up = { 0, 0, 1 };
+            if (Math.Abs(Dot(f, up)) > 0.999) up = new double[] { 0, 1, 0 };
+            double[] r = Norm(Cross(f, up));
+            double[] u = Cross(r, f);
+            return (r, u, f);
+        }
+
+        private static double[] Norm(double[] v)
+        {
+            double m = Math.Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            if (m == 0) m = 1;
+            return new[] { v[0] / m, v[1] / m, v[2] / m };
+        }
+
+        private static double[] Cross(double[] a, double[] b)
+            => new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+
+        private static double Dot(double[] a, double[] b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
         public static void Render(string path, IsoFigure fig)
         {
             const int W = 1120, H = 640;
             const int mL = 30, mR = 150, mT = 78, mB = 40;
             int pw = W - mL - mR, ph = H - mT - mB;
-            double az = fig.AzDeg * Math.PI / 180.0, el = fig.ElDeg * Math.PI / 180.0;
+            var (bR, bU, bF) = Basis(fig.ViewDir);
 
             // project all element nodes; track 2D bounds
             double sxmin = double.MaxValue, sxmax = double.MinValue, symin = double.MaxValue, symax = double.MinValue;
@@ -97,7 +114,7 @@ namespace FEMDesignDumper
                 var px = new double[n]; var py = new double[n]; double dsum = 0;
                 for (int i = 0; i < n; i++)
                 {
-                    var (sx, sy, d) = Project(e.Xyz[i][0], e.Xyz[i][1], e.Xyz[i][2], az, el);
+                    var (sx, sy, d) = Project(e.Xyz[i][0], e.Xyz[i][1], e.Xyz[i][2], bR, bU, bF);
                     px[i] = sx; py[i] = sy; dsum += d;
                     sxmin = Math.Min(sxmin, sx); sxmax = Math.Max(sxmax, sx);
                     symin = Math.Min(symin, sy); symax = Math.Max(symax, sy);
@@ -124,8 +141,8 @@ namespace FEMDesignDumper
             if (!string.IsNullOrEmpty(fig.Subtitle))
                 sb.Append($"<text x=\"{mL}\" y=\"56\" font-size=\"13\" fill=\"#555\">{Esc(fig.Subtitle)}</text>\n");
 
-            // painter's algorithm: far (small depth) first
-            foreach (var p in projPolys.OrderBy(p => p.depth))
+            // painter's algorithm: far (large depth along view) first
+            foreach (var p in projPolys.OrderByDescending(p => p.depth))
             {
                 var (r, g, b) = Color(p.value, cmax);
                 var pts = new StringBuilder();
@@ -140,17 +157,17 @@ namespace FEMDesignDumper
             // faint plate labels at plate centroids
             foreach (var pl in fig.PlateLabels)
             {
-                var (sx, sy, _) = Project(pl.Value[0], pl.Value[1], pl.Value[2], az, el);
+                var (sx, sy, _) = Project(pl.Value[0], pl.Value[1], pl.Value[2], bR, bU, bF);
                 sb.Append($"<text x=\"{F(TX(sx))}\" y=\"{F(TY(sy))}\" font-size=\"12\" font-weight=\"700\" fill=\"#1a1a1a\" opacity=\"0.55\" text-anchor=\"middle\">{Esc(pl.Key)}</text>\n");
             }
 
             // orientation triad (lower-left)
-            DrawTriad(sb, 64, H - 70, s, az, el);
+            DrawTriad(sb, 64, H - 70, bR, bU, bF);
 
             // peak annotation
             if (fig.PeakXyz != null)
             {
-                var (sx, sy, _) = Project(fig.PeakXyz[0], fig.PeakXyz[1], fig.PeakXyz[2], az, el);
+                var (sx, sy, _) = Project(fig.PeakXyz[0], fig.PeakXyz[1], fig.PeakXyz[2], bR, bU, bF);
                 double mx = TX(sx), my = TY(sy);
                 bool below = my < mT + 100;
                 double leadY2 = below ? my + 30 : my - 34;
@@ -189,10 +206,10 @@ namespace FEMDesignDumper
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
         }
 
-        private static void DrawTriad(StringBuilder sb, double cx, double cy, double worldScale, double az, double el)
+        private static void DrawTriad(StringBuilder sb, double cx, double cy, double[] r, double[] u, double[] f)
         {
             double len = 40; // screen px per axis arrow
-            var origin = Project(0, 0, 0, az, el);
+            var origin = Project(0, 0, 0, r, u, f);
             (string lbl, double x, double y, double z, string col)[] ax =
             {
                 ("x", 1, 0, 0, "#c0392b"),
@@ -201,7 +218,7 @@ namespace FEMDesignDumper
             };
             foreach (var a in ax)
             {
-                var p = Project(a.x, a.y, a.z, az, el);
+                var p = Project(a.x, a.y, a.z, r, u, f);
                 double dx = p.sx - origin.sx, dy = p.sy - origin.sy;
                 double nrm = Math.Sqrt(dx * dx + dy * dy); if (nrm == 0) nrm = 1;
                 double ex = cx + dx / nrm * len, ey = cy - dy / nrm * len;

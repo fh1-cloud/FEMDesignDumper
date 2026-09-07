@@ -69,6 +69,7 @@ FEMDesignDumper --model <path> [options]
 | `--plots <list>` | Per-plate SVG colour maps with annotated peak: `reinf`, `moment`, `shear`, `deflection`, or `all`. Default: none. |
 | `--plot-cap <mode>` | Colour-scale cap: `max` (default), `p95`, `p99`. Tames support singularities; the peak label always shows the true value. |
 | `--plot-view <mode>` | `iso` (default — whole structure in one 3D view), `plate` (one flat map per plate), or `both`. |
+| `--iso-view <x,y,z>` | Isometric viewpoint / eye direction (world up = +Z). Default: `-1,-1,1`. |
 | `--fd-dir <path>` | FEM-Design install directory. Default: auto-detect. |
 | `--gui` | Show the FEM-Design window instead of running headless. |
 | `--keep-open` | Leave FEM-Design running after the dump. |
@@ -169,7 +170,9 @@ combination, and whether the peak element borders a support).
 - **`iso`** (default) — the **whole structure in one axonometric 3D view**
   (`<out>/plots/iso_<field>.svg`), with each plate labelled (`P.1`…), an x/y/z orientation
   triad, and painter-sorted, depth-correct shading. This is the easiest to read; you don't have
-  to relate to abstract plate names.
+  to relate to abstract plate names. The viewpoint is a look-at camera set by `--iso-view x,y,z`
+  (eye direction, world up = +Z); default `-1,-1,1`. e.g. `--iso-view 1,-1,1` views from the
+  other side.
 - **`plate`** — one flat map per plate (`<out>/plots/<surface>_<field>.svg`); each plate is
   projected to its own 2D plane (the near-constant global axis is dropped, the two remaining
   global axes label the plot, so it assumes plates roughly parallel to a global coordinate plane).
